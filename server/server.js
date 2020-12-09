@@ -10,7 +10,7 @@ const server = http.createServer(app);
 const io = socket(server, {});
 
 // Set static folder
-app.use(express.static(path.join(__dirname, "public")));
+app.use(express.static(path.join(__dirname, "../", "public")));
 
 // Start server
 server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
