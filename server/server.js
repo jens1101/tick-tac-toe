@@ -20,8 +20,8 @@ app.use(express.static(path.join(__dirname, "../", "public")));
 server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
 
 // Handle new socket connection requests from client
-io.on("connection", (socket) => {
-  const gameRoomId = initConnection(socket);
+io.on("connection", async (socket) => {
+  const gameRoomId = await initConnection(socket);
 
   socket.on("disconnect", () => onSocketDisconnect(socket, gameRoomId));
 
@@ -35,7 +35,7 @@ io.on("connection", (socket) => {
  * @param socket
  * @return {string} The room ID of the game that the user is part of.
  */
-function initConnection(socket) {
+async function initConnection(socket) {
   // Join a game in the lobby, if available
   if (lobbyRoomIds.size > 0) {
     const roomId = [...lobbyRoomIds].pop();
@@ -43,7 +43,14 @@ function initConnection(socket) {
     gameRoomIds.add(roomId);
     socket.join(roomId);
 
-    io.to(roomId).emit("gameStart");
+    /** @type {Set<>}*/
+    const socketIds = await io.in(roomId).allSockets();
+
+    const startingPlayerSocketId = [...socketIds][
+      Math.floor(Math.random() * socketIds.size)
+    ];
+
+    io.to(roomId).emit("gameStart", { startingPlayerSocketId });
 
     return roomId;
   }
