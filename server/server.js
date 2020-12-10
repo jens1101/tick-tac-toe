@@ -10,7 +10,7 @@ const app = express();
 const server = http.createServer(app);
 const io = socketIo(server, {});
 
-const gameRoomIds = new Set();
+const games = new Map();
 const lobbyRoomIds = new Set();
 
 // Set static folder
@@ -25,8 +25,21 @@ io.on("connection", async (socket) => {
 
   socket.on("disconnect", () => onSocketDisconnect(socket, gameRoomId));
 
-  // TODO: handle the case when a game is completed
-  // TODO: handle gameplay events
+  socket.on("makeMove", ({ row, column }) => {
+    const winnerSocketId = makeMove(
+      socket.id,
+      games.get(gameRoomId).gameBoard,
+      {
+        row,
+        column,
+      }
+    );
+
+    if (winnerSocketId) {
+      // TODO: handle the case when a game is completed
+      console.log(`${winnerSocketId} has won the game`);
+    }
+  });
 });
 
 /**
@@ -38,9 +51,13 @@ io.on("connection", async (socket) => {
 async function initConnection(socket) {
   // Join a game in the lobby, if available
   if (lobbyRoomIds.size > 0) {
+    const gameBoard = createEmptyBoard();
+
     const roomId = [...lobbyRoomIds].pop();
     lobbyRoomIds.delete(roomId);
-    gameRoomIds.add(roomId);
+    games.set(roomId, {
+      gameBoard,
+    });
     socket.join(roomId);
 
     /** @type {Set<>}*/
@@ -50,7 +67,7 @@ async function initConnection(socket) {
       Math.floor(Math.random() * socketIds.size)
     ];
 
-    io.to(roomId).emit("gameStart", { startingPlayerSocketId });
+    io.to(roomId).emit("gameStart", { startingPlayerSocketId, gameBoard });
 
     return roomId;
   }
@@ -74,5 +91,94 @@ function onSocketDisconnect(socket, gameRoomId) {
   socket.to(gameRoomId).emit("gameAbort");
 
   lobbyRoomIds.delete(gameRoomId);
-  gameRoomIds.delete(gameRoomId);
+  games.delete(gameRoomId);
+}
+
+/**
+ * Creates and returns an empty game board.
+ * @return {(null|string)[][]}
+ */
+function createEmptyBoard() {
+  return [
+    [null, null, null],
+    [null, null, null],
+    [null, null, null],
+  ];
+}
+
+/**
+ * Makes a move by the given player on the specified cell. This checks if the move is valid, updates
+ * the board, and checks if anybody has won.
+ * @param socketId
+ * @param board
+ * @param row
+ * @param column
+ * @return {undefined|string} The socketID of the winner of this game. If nobody has won yet then
+ * returns undefined instead.
+ */
+function makeMove(socketId, board, { row, column }) {
+  if (!isOnBoard(board, { row, column })) {
+    throw new Error("Invalid move. Cell is not on board.");
+  }
+
+  if (board[row][column]) {
+    throw new Error("Invalid move. Cell is not empty.");
+  }
+
+  board[row][column] = socketId;
+
+  return checkForWinner(board);
+}
+
+/**
+ * Checks if the specified cell is on the board
+ * @param board
+ * @param row
+ * @param column
+ * @return {boolean}
+ */
+function isOnBoard(board, { row, column }) {
+  return (
+    row >= 0 && row < board.length && column >= 0 && column < board[row].length
+  );
+}
+
+/**
+ * For the specified board checks if anybody has won.
+ * @param board The 3x3 board to check
+ * @return {undefined|string} The socketID of the winner on this board or undefined if nobody has
+ * won.
+ */
+function checkForWinner(board) {
+  const streaks = [
+    // Rows
+    ...board,
+
+    // Columns
+    [board[0][0], board[1][0], board[2][0]],
+    [board[0][1], board[1][1], board[2][1]],
+    [board[0][2], board[1][2], board[2][2]],
+
+    // Diagonals
+    [board[0][0], board[1][1], board[2][2]],
+    [board[0][2], board[1][1], board[2][0]],
+  ];
+
+  for (const streak of streaks) {
+    const winner = getWinner(streak);
+
+    if (winner) return winner;
+  }
+}
+
+function getWinner(streak) {
+  let winner = streak[0];
+
+  for (const cell of streak) {
+    if (cell !== winner) {
+      return;
+    }
+  }
+
+  return winner;
 }
