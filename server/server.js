@@ -26,6 +26,7 @@ io.on("connection", async (socket) => {
   socket.on("disconnect", () => onSocketDisconnect(socket, gameRoomId));
 
   socket.on("makeMove", ({ row, column }) => {
+    // TODO: prevent making a move when it's not your turn
     const winnerSocketId = makeMove(
       socket.id,
       games.get(gameRoomId).gameBoard,
@@ -34,6 +35,8 @@ io.on("connection", async (socket) => {
         column,
       }
     );
+
+    // TODO: tell other players of the move that was made
 
     if (winnerSocketId) {
       // TODO: handle the case when a game is completed

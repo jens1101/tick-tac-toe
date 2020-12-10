@@ -1,0 +1,24 @@
+.game-board {
+    display: table;
+}
+
+.row {
+    display: table-row;
+}
+
+.cell {
+    display: table-cell;
+}
+
+.cell > .circle,
+.cell > .cross {
+    display: none;
+}
+
+.cell--occupied-circle > .circle {
+    display: inline;
+}
+
+.cell--occupied-cross > .cross {
+    display: inline;
+}
