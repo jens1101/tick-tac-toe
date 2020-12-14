@@ -4,12 +4,29 @@ const http = require("http");
 const socketIo = require("socket.io");
 const { v4: uuid } = require("uuid");
 
+/**
+ * @typedef Cell
+ * @property {number} row
+ * @property {number} column
+ */
+
+/**
+ * @typedef RunningGame
+ * @property gameBoard
+ * @property {string[]} playerSocketIds
+ * @property {string} currentPlayerSocketId
+ */
+
 const PORT = process.env.PORT;
 
 const app = express();
 const server = http.createServer(app);
 const io = socketIo(server, {});
 
+/**
+ *
+ * @type {Map<string, RunningGame>}
+ */
 const games = new Map();
 const lobbyRoomIds = new Set();
 
@@ -25,24 +42,9 @@ io.on("connection", async (socket) => {
 
   socket.on("disconnect", () => onSocketDisconnect(socket, gameRoomId));
 
-  socket.on("makeMove", ({ row, column }) => {
-    // TODO: prevent making a move when it's not your turn
-    const winnerSocketId = makeMove(
-      socket.id,
-      games.get(gameRoomId).gameBoard,
-      {
-        row,
-        column,
-      }
-    );
-
-    // TODO: tell other players of the move that was made
-
-    if (winnerSocketId) {
-      // TODO: handle the case when a game is completed
-      console.log(`${winnerSocketId} has won the game`);
-    }
-  });
+  socket.on("makeMove", ({ row, column }) =>
+    makeMove(socket.id, gameRoomId, { row, column })
+  );
 });
 
 /**
@@ -58,19 +60,24 @@ async function initConnection(socket) {
 
     const roomId = [...lobbyRoomIds].pop();
     lobbyRoomIds.delete(roomId);
-    games.set(roomId, {
-      gameBoard,
-    });
+
     socket.join(roomId);
 
-    /** @type {Set<>}*/
-    const socketIds = await io.in(roomId).allSockets();
+    /** @type {string[]}*/
+    const playerSocketIds = [...(await io.in(roomId).allSockets())];
 
-    const startingPlayerSocketId = [...socketIds][
-      Math.floor(Math.random() * socketIds.size)
-    ];
+    const startingPlayerSocketId =
+      playerSocketIds[Math.floor(Math.random() * playerSocketIds.length)];
 
-    io.to(roomId).emit("gameStart", { startingPlayerSocketId, gameBoard });
+    const game = {
+      gameBoard,
+      currentPlayerSocketId: startingPlayerSocketId,
+      playerSocketIds,
+    };
+
+    games.set(roomId, game);
+
+    emitGameMove(roomId, game, undefined);
 
     return roomId;
   }
@@ -113,24 +120,50 @@ function createEmptyBoard() {
  * Makes a move by the given player on the specified cell. This checks if the move is valid, updates
  * the board, and checks if anybody has won.
  * @param socketId
- * @param board
- * @param row
- * @param column
- * @return {undefined|string} The socketID of the winner of this game. If nobody has won yet then
- * returns undefined instead.
+ * @param gameRoomId
+ * @param {Cell} coordinates
  */
-function makeMove(socketId, board, { row, column }) {
-  if (!isOnBoard(board, { row, column })) {
+function makeMove(socketId, gameRoomId, { row, column }) {
+  const game = games.get(gameRoomId);
+
+  // TODO: prevent playing a move when you're not part of an active game
+
+  if (game.currentPlayerSocketId !== socketId) {
+    throw new Error("Invalid move. It is not your turn.");
+  }
+
+  if (!isOnBoard(game.gameBoard, { row, column })) {
     throw new Error("Invalid move. Cell is not on board.");
   }
 
-  if (board[row][column]) {
+  if (game.gameBoard[row][column]) {
     throw new Error("Invalid move. Cell is not empty.");
   }
 
-  board[row][column] = socketId;
+  game.gameBoard[row][column] = socketId;
 
-  return checkForWinner(board);
+  game.currentPlayerSocketId =
+    game.playerSocketIds[
+      (game.playerSocketIds.indexOf(game.currentPlayerSocketId) + 1) %
+        game.playerSocketIds.length
+    ];
+
+  // TODO: do something when a game is won.
+
+  emitGameMove(gameRoomId, game, checkForWinner(game.gameBoard));
+}
+
+/**
+ *
+ * @param {string} gameRoomId
+ * @param {RunningGame} game
+ * @param {undefined|string} winnerSocketId
+ */
+function emitGameMove(gameRoomId, game, winnerSocketId) {
+  io.to(gameRoomId).emit("gameMove", {
+    game,
+    winnerSocketId,
+  });
 }
 
 /**
@@ -153,7 +186,7 @@ function isOnBoard(board, { row, column }) {
  * won.
  */
 function checkForWinner(board) {
-  const streaks = [
+  const combinations = [
     // Rows
     ...board,
 
@@ -167,17 +200,17 @@ function checkForWinner(board) {
     [board[0][2], board[1][1], board[2][0]],
   ];
 
-  for (const streak of streaks) {
-    const winner = getWinner(streak);
+  for (const combination of combinations) {
+    const winner = getWinner(combination);
 
     if (winner) return winner;
   }
 }
 
-function getWinner(streak) {
-  let winner = streak[0];
+function getWinner(combination) {
+  let winner = combination[0];
 
-  for (const cell of streak) {
+  for (const cell of combination) {
     if (cell !== winner) {
       return;
     }
